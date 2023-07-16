@@ -1,4 +1,4 @@
-module nikand.dev/go/vanity
+module nikand.dev/go/vanity-go
 
 go 1.20
 
