@@ -48,7 +48,7 @@ func main() {
 		Action: staticRun,
 		Flags: []*cli.Flag{
 			cli.NewFlag("output,o", "static", "output directory"),
-			cli.NewFlag("remove,rm", false, "remove static dir before start"),
+			//	cli.NewFlag("remove,rm", false, "remove static dir before start"),
 		},
 	}
 
@@ -58,7 +58,6 @@ func main() {
 		Before:      before,
 		Flags: []*cli.Flag{
 			cli.NewFlag("config", "vanity.yaml", "repos"),
-			cli.NewFlag("modules", "", "file with modules"),
 
 			cli.NewFlag("log", "stderr?dm", "log output file (or stderr)"),
 			cli.NewFlag("verbosity,v", "", "logger verbosity topics"),
@@ -180,13 +179,7 @@ func staticRun(c *cli.Command) (err error) {
 	}
 
 	root := c.String("output")
-
-	if c.Bool("remove") {
-		err = os.RemoveAll(root)
-		if err != nil {
-			return errors.Wrap(err, "remove output dir")
-		}
-	}
+	root = filepath.Clean(root)
 
 	var buf low.Buf
 
@@ -214,27 +207,22 @@ func staticRun(c *cli.Command) (err error) {
 				return errors.Wrap(err, "exec page template")
 			}
 
-			var fname string
-
 			domain := strings.IndexRune(module, '/')
-			if domain == -1 {
-				fname = filepath.Join(root, "index.html")
-			} else {
-				modpath := filepath.FromSlash(module[domain:])
 
-				fname = filepath.Join(root, modpath)
-			}
+			fname := filepath.FromSlash(module[domain+1:])
+			fname = filepath.Join(fname, "index.html")
 
-			dir := filepath.Dir(fname)
+			full := filepath.Join(root, fname)
+			dir := filepath.Dir(full)
 
-			tlog.Printw("writing module", "module", module)
+			tlog.Printw("writing module", "module", module, "path", full)
 
 			err = os.MkdirAll(dir, 0o755)
 			if err != nil {
 				return errors.Wrap(err, "mkdir")
 			}
 
-			err = os.WriteFile(fname, buf, 0o644)
+			err = os.WriteFile(full, buf, 0o644)
 			if err != nil {
 				return errors.Wrap(err, "write file")
 			}
@@ -260,28 +248,6 @@ func loadConfig(name string) (*Config, error) {
 	}
 
 	return &c, nil
-}
-
-func parseModules(name string) ([]Module, error) {
-	data, err := os.ReadFile(name)
-	if err != nil {
-		return nil, errors.Wrap(err, "read file")
-	}
-
-	var mods []Module
-
-	err = yaml.Unmarshal(data, &mods)
-	if err != nil {
-		return nil, errors.Wrap(err, "unmarshal")
-	}
-
-	for i := range mods {
-		if mods[i].VCS == "" {
-			mods[i].VCS = "git"
-		}
-	}
-
-	return mods, nil
 }
 
 var repoPage = template.Must(template.New("page").Parse(`<!DOCTYPE html>
