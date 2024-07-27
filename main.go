@@ -255,10 +255,10 @@ var repoPage = template.Must(template.New("page").Parse(`<!DOCTYPE html>
 <html lang=en-US>
 <head>
 	<meta name="go-import" content="{{ .Name }} {{ .VCS }} {{ .Repo }}">
-	<meta http-equiv="Refresh" content="0; url='{{ template "godoc" .Name }}'" />
+	<meta http-equiv="Refresh" content="3; url='{{ template "godoc" .Name }}'" />
 </head>
 <body>
-	<a href="{{ template "godoc" .Name }}">{{ .Name }}</a>
+	Redirecting to <a href="{{ template "godoc" .Name }}">{{ template "godoc" .Name }}</a>...
 </body>
 </html>
 `))
