@@ -1,0 +1,23 @@
+name: Go Modules Vanity Generator
+description: Generate static html for Go modules with custom domain name.
+
+inputs:
+  vanity_file:
+    description: Path to vanity.yaml file.
+    required: true
+    default: vanity.yaml
+  output_dir:
+    description: Directory where to put generated files to.
+    required: true
+    default: _site
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-go@v4
+
+    - run: go install nikand.dev/go/vanity-go@latest
+      shell: sh
+
+    - run: vanity-go gen "--config=${{ inputs.vanity_file }}" "--output=${{ inputs.output_dir }}"
+      shell: sh
