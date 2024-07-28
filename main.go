@@ -1,7 +1,9 @@
 package main
 
 import (
+	stderrors "errors"
 	"html/template"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -9,34 +11,46 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/nikandfor/cli"
-	"github.com/nikandfor/errors"
-	"github.com/nikandfor/tlog"
-	"github.com/nikandfor/tlog/ext/tlflag"
-	"github.com/nikandfor/tlog/low"
-	"gopkg.in/yaml.v3"
+	"github.com/goccy/go-yaml"
+	"nikand.dev/go/cli"
+	"nikand.dev/go/hacked/low"
+	"tlog.app/go/errors"
+	"tlog.app/go/tlog"
+	"tlog.app/go/tlog/ext/tlflag"
 )
 
 type (
-	Module struct {
-		Name string `json:"name"` // import prefix
-		VCS  string `json:"vcs"`
-		Repo string `json:"repo"` // url
+	Config struct {
+		Modules []Module      `json:"modules,omitempty"`
+		Replace []Replacement `json:"replace,omitempty"`
 	}
 
-	Config struct {
-		Modules []string `json:"modules"`
-		Replace []struct {
-			Prefix string `json:"prefix"`
-			Repo   string `json:"repo"`
-			VCS    string `json:"vcs"`
-		} `json:"replace"`
+	Module struct {
+		Module   string `json:"module"`
+		RepoRoot string `json:"repo_root,omitempty"`
+		Repo     string `json:"repo,omitempty"`
+		VCS      string `json:"vcs,omitempty"`
+	}
+
+	Replacement struct {
+		Prefix string `json:"prefix"`
+		Repo   string `json:"repo"`
+		VCS    string `json:"vcs,omitempty"`
+	}
+
+	Params struct {
+		Package string `json:"pkg"`
+		Module  string `json:"module"` // import prefix
+		VCS     string `json:"vcs"`
+		Repo    string `json:"repo"` // url
 	}
 )
 
+var ErrReplacementNotFound = stderrors.New("replacement not found")
+
 func main() {
 	serveCmd := &cli.Command{
-		Name:   "serve",
+		Name:   "serve,server",
 		Action: serveRun,
 		Flags: []*cli.Flag{
 			cli.NewFlag("listen,l", ":80", "address to listen to"),
@@ -119,54 +133,34 @@ func serveRun(c *cli.Command) (err error) {
 
 	err = http.Serve(l, http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		var err error
+		var module Module
 
 		tr := tlog.Start("request", "method", req.Method, "host", req.Host, "path", req.URL.Path, "query", req.URL.RawQuery)
-		defer tr.Finish("err", &err)
+		defer tr.Finish("module", &module.Module, "err", &err)
 
-		prefix := path.Join(req.Host, req.URL.Path)
-
-		var module string
+		pkg := path.Join(req.Host, req.URL.Path)
 
 		for _, mod := range cfg.Modules {
-			if !strings.HasPrefix(prefix, mod) {
+			if !strings.HasPrefix(pkg, mod.Module) {
 				continue
 			}
 
-			module = mod
-
-			break
+			if len(mod.Module) > len(module.Module) {
+				module = mod
+			}
 		}
 
-		if module == "" {
+		if module == (Module{}) {
 			http.NotFound(w, req)
 			return
 		}
 
-		for _, rep := range cfg.Replace {
-			if !strings.HasPrefix(prefix, rep.Prefix) {
-				continue
-			}
-
-			repo := strings.Replace(module, rep.Prefix, rep.Repo, 1)
-			vcs := rep.VCS
-
-			if vcs == "" {
-				vcs = "git"
-			}
-
-			err = repoPage.Execute(w, Module{
-				Name: prefix,
-				VCS:  vcs,
-				Repo: repo,
-			})
-			if err != nil {
-				err = errors.Wrap(err, "exec page template")
-			}
-
-			return
+		err = GeneratePage(w, pkg, module, cfg.Replace)
+		if errors.Is(err, ErrReplacementNotFound) {
+			http.NotFound(w, req)
+		} else if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
-
-		http.NotFound(w, req)
 	}))
 
 	return nil
@@ -181,57 +175,72 @@ func staticRun(c *cli.Command) (err error) {
 	root := c.String("output")
 	root = filepath.Clean(root)
 
-	var buf low.Buf
-
 	for _, module := range cfg.Modules {
-		for _, rep := range cfg.Replace {
-			if !strings.HasPrefix(module, rep.Prefix) {
-				continue
-			}
+		var buf low.Buf
 
-			repo := strings.Replace(module, rep.Prefix, rep.Repo, 1)
-			vcs := rep.VCS
+		err := GeneratePage(&buf, module.Module, module, cfg.Replace)
+		if err != nil {
+			return errors.Wrap(err, module.Module)
+		}
 
-			if vcs == "" {
-				vcs = "git"
-			}
+		domain := strings.IndexRune(module.Module, '/')
 
-			buf = buf[:0]
+		fname := filepath.FromSlash(module.Module[domain+1:])
+		fname = filepath.Join(fname, "index.html")
 
-			err = repoPage.Execute(&buf, Module{
-				Name: module,
-				VCS:  vcs,
-				Repo: repo,
-			})
-			if err != nil {
-				return errors.Wrap(err, "exec page template")
-			}
+		full := filepath.Join(root, fname)
+		dir := filepath.Dir(full)
 
-			domain := strings.IndexRune(module, '/')
+		tlog.Printw("writing module", "module", module, "path", full)
 
-			fname := filepath.FromSlash(module[domain+1:])
-			fname = filepath.Join(fname, "index.html")
+		err = os.MkdirAll(dir, 0o755)
+		if err != nil {
+			return errors.Wrap(err, "mkdir")
+		}
 
-			full := filepath.Join(root, fname)
-			dir := filepath.Dir(full)
-
-			tlog.Printw("writing module", "module", module, "path", full)
-
-			err = os.MkdirAll(dir, 0o755)
-			if err != nil {
-				return errors.Wrap(err, "mkdir")
-			}
-
-			err = os.WriteFile(full, buf, 0o644)
-			if err != nil {
-				return errors.Wrap(err, "write file")
-			}
-
-			break
+		err = os.WriteFile(full, buf, 0o644)
+		if err != nil {
+			return errors.Wrap(err, "write file")
 		}
 	}
 
 	return nil
+}
+
+func GeneratePage(w io.Writer, pkg string, mod Module, reps []Replacement) (err error) {
+	if repo := mod.Repo; repo != "" {
+		err := repoPage.Execute(w, Params{
+			Package: pkg,
+			Module:  first(mod.RepoRoot, mod.Module),
+			VCS:     first(mod.VCS, "git"),
+			Repo:    repo,
+		})
+		if err != nil {
+			return errors.Wrap(err, "exec page template")
+		}
+	}
+
+	for _, rep := range reps {
+		if !strings.HasPrefix(mod.Module, rep.Prefix) {
+			continue
+		}
+
+		repo := strings.Replace(first(mod.RepoRoot, mod.Module), rep.Prefix, rep.Repo, 1)
+
+		err := repoPage.Execute(w, Params{
+			Package: pkg,
+			Module:  first(mod.RepoRoot, mod.Module),
+			VCS:     first(rep.VCS, "git"),
+			Repo:    repo,
+		})
+		if err != nil {
+			return errors.Wrap(err, "exec page template")
+		}
+
+		return nil
+	}
+
+	return ErrReplacementNotFound
 }
 
 func loadConfig(name string) (*Config, error) {
@@ -250,15 +259,49 @@ func loadConfig(name string) (*Config, error) {
 	return &c, nil
 }
 
+type Dummy struct {
+	Module string `json:"module"`
+}
+
+func (m *Module) UnmarshalYAML(f func(x interface{}) error) error {
+	*m = Module{}
+
+	err := f(&m.Module)
+	if err == nil {
+		return nil
+	}
+
+	type Dummy Module
+	var x Dummy
+
+	err = f(&x)
+	if err == nil {
+		*m = Module(x)
+		return nil
+	}
+
+	return errors.New("can't unmarshal value into Module")
+}
+
+func first(s ...string) string {
+	for _, s := range s {
+		if s != "" {
+			return s
+		}
+	}
+
+	return ""
+}
+
 var repoPage = template.Must(template.New("page").Parse(`<!DOCTYPE html>
 {{- define "godoc" }}https://pkg.go.dev/{{ . }}{{ end }}
 <html lang=en-US>
 <head>
-	<meta name="go-import" content="{{ .Name }} {{ .VCS }} {{ .Repo }}">
-	<meta http-equiv="Refresh" content="3; url='{{ template "godoc" .Name }}'" />
+	<meta name="go-import" content="{{ .Module }} {{ .VCS }} {{ .Repo }}">
+	<meta http-equiv="Refresh" content="3; url='{{ template "godoc" .Package }}'" />
 </head>
 <body>
-	Redirecting to <a href="{{ template "godoc" .Name }}">{{ template "godoc" .Name }}</a>...
+	Redirecting to <a href="{{ template "godoc" .Package }}">{{ template "godoc" .Package }}</a>...
 </body>
 </html>
 `))

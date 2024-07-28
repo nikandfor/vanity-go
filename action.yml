@@ -10,13 +10,16 @@ inputs:
     description: Directory where to put generated files to.
     required: true
     default: _site
+  generator_version:
+    description: Version tag, branch, or commit of venity-go command
+    default: latest
 
 runs:
   using: composite
   steps:
     - uses: actions/setup-go@v4
 
-    - run: go install nikand.dev/go/vanity-go@latest
+    - run: go install nikand.dev/go/vanity-go@${{ inputs.generator_version }} # TODO: use precompiled release
       shell: sh
 
     - run: vanity-go gen "--config=${{ inputs.vanity_file }}" "--output=${{ inputs.output_dir }}"
