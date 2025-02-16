@@ -208,39 +208,37 @@ func staticRun(c *cli.Command) (err error) {
 }
 
 func GeneratePage(w io.Writer, pkg string, mod Module, reps []Replacement) (err error) {
-	if repo := mod.Repo; repo != "" {
-		err := repoPage.Execute(w, Params{
-			Package: pkg,
-			Module:  first(mod.RepoRoot, mod.Module),
-			VCS:     first(mod.VCS, "git"),
-			Repo:    repo,
-		})
-		if err != nil {
-			return errors.Wrap(err, "exec page template")
+	p := Params{
+		Package: pkg,
+		Module:  mod.Module,
+		VCS:     first(mod.VCS, "git"),
+		Repo:    mod.Repo,
+	}
+
+	if p.Repo == "" {
+		root := first(mod.RepoRoot, mod.Module)
+
+		for _, rep := range reps {
+			if !strings.HasPrefix(root, rep.Prefix) {
+				continue
+			}
+
+			p.Repo = strings.Replace(root, rep.Prefix, rep.Repo, 1)
+
+			break
 		}
 	}
 
-	for _, rep := range reps {
-		if !strings.HasPrefix(mod.Module, rep.Prefix) {
-			continue
-		}
-
-		repo := strings.Replace(first(mod.RepoRoot, mod.Module), rep.Prefix, rep.Repo, 1)
-
-		err := repoPage.Execute(w, Params{
-			Package: pkg,
-			Module:  first(mod.RepoRoot, mod.Module),
-			VCS:     first(rep.VCS, "git"),
-			Repo:    repo,
-		})
-		if err != nil {
-			return errors.Wrap(err, "exec page template")
-		}
-
-		return nil
+	if p.Repo == "" {
+		return ErrReplacementNotFound
 	}
 
-	return ErrReplacementNotFound
+	err = repoPage.Execute(w, p)
+	if err != nil {
+		return errors.Wrap(err, "exec page template")
+	}
+
+	return nil
 }
 
 func loadConfig(name string) (*Config, error) {
