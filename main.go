@@ -40,7 +40,7 @@ type (
 
 	Params struct {
 		Package string `json:"pkg"`
-		Module  string `json:"module"` // import prefix
+		Root    string `json:"root"` // import prefix
 		VCS     string `json:"vcs"`
 		Repo    string `json:"repo"` // url
 	}
@@ -210,20 +210,18 @@ func staticRun(c *cli.Command) (err error) {
 func GeneratePage(w io.Writer, pkg string, mod Module, reps []Replacement) (err error) {
 	p := Params{
 		Package: pkg,
-		Module:  mod.Module,
+		Root:    first(mod.RepoRoot, mod.Module),
 		VCS:     first(mod.VCS, "git"),
 		Repo:    mod.Repo,
 	}
 
 	if p.Repo == "" {
-		root := first(mod.RepoRoot, mod.Module)
-
 		for _, rep := range reps {
-			if !strings.HasPrefix(root, rep.Prefix) {
+			if !strings.HasPrefix(p.Root, rep.Prefix) {
 				continue
 			}
 
-			p.Repo = strings.Replace(root, rep.Prefix, rep.Repo, 1)
+			p.Repo = strings.Replace(p.Root, rep.Prefix, rep.Repo, 1)
 
 			break
 		}
@@ -295,7 +293,7 @@ var repoPage = template.Must(template.New("page").Parse(`<!DOCTYPE html>
 {{- define "godoc" }}https://pkg.go.dev/{{ . }}{{ end }}
 <html lang=en-US>
 <head>
-	<meta name="go-import" content="{{ .Module }} {{ .VCS }} {{ .Repo }}">
+	<meta name="go-import" content="{{ .Root }} {{ .VCS }} {{ .Repo }}">
 	<meta http-equiv="Refresh" content="3; url='{{ template "godoc" .Package }}'" />
 </head>
 <body>
