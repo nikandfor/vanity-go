@@ -3,7 +3,9 @@
 `vanity-go` is a vanity page generator and server.
 It allows you to import your Go modules using custom domains (e.g., `nikand.dev/go/vanity-go`) while still hosting them on GitHub or another platform.
 
-I personally use it with GitHub Pages — see the example in the [`nikand.dev` repository](https://github.com/nikandfor/nikand.dev).
+I personally use it with GitHub Pages — see examples in
+[nikand.dev](https://github.com/nikandfor/nikand.dev) and
+[tlog.app](https://github.com/tlog-dev/tlog.app) repositories.
 
 To set it up, you need:
 ```
@@ -31,8 +33,8 @@ modules:
 
                                   # fancy syntax
   - tlog.app/go/tlog:             # common prefix; repo root
-    - /                           # modules list with the prefix
-    - /ext/tlgin                  # each subdirectory that have go.mod in it
+    - /                           # list of modules under the prefix
+    - /ext/tlgin                  # each subdirectory that has go.mod in it
     - /cmd/tlog
     url: https://github.com/tlog-dev/tlog # override common replace rule
 
