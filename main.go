@@ -11,32 +11,19 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/goccy/go-yaml"
 	"nikand.dev/go/cli"
 	"nikand.dev/go/hacked/low"
 	"tlog.app/go/errors"
 	"tlog.app/go/tlog"
 	"tlog.app/go/tlog/ext/tlflag"
+
+	"nikand.dev/go/vanity-go/configdecoder"
 )
 
 type (
-	Config struct {
-		Modules []Module      `json:"modules,omitempty"`
-		Replace []Replacement `json:"replace,omitempty"`
-	}
-
-	Module struct {
-		Module   string `json:"module"`
-		RepoRoot string `json:"repo_root,omitempty"`
-		Repo     string `json:"repo,omitempty"`
-		VCS      string `json:"vcs,omitempty"`
-	}
-
-	Replacement struct {
-		Prefix string `json:"prefix"`
-		Repo   string `json:"repo"`
-		VCS    string `json:"vcs,omitempty"`
-	}
+	Config      = configdecoder.Config
+	Module      = configdecoder.Module
+	Replacement = configdecoder.Replacement
 
 	Params struct {
 		Package string `json:"pkg"`
@@ -61,7 +48,7 @@ func main() {
 		Name:   "generate,gen,static",
 		Action: staticRun,
 		Flags: []*cli.Flag{
-			cli.NewFlag("output,o", "static", "output directory"),
+			cli.NewFlag("output,o", "_site", "output directory"),
 			//	cli.NewFlag("remove,rm", false, "remove static dir before start"),
 		},
 	}
@@ -71,7 +58,7 @@ func main() {
 		Description: "tool for making go vanity module names easy to use",
 		Before:      before,
 		Flags: []*cli.Flag{
-			cli.NewFlag("config", "vanity.yaml", "repos"),
+			cli.NewFlag("config,c", "vanity.yaml", "repos"),
 
 			cli.NewFlag("log", "stderr?dm", "log output file (or stderr)"),
 			cli.NewFlag("verbosity,v", "", "logger verbosity topics"),
@@ -119,7 +106,7 @@ func before(c *cli.Command) error {
 }
 
 func serveRun(c *cli.Command) (err error) {
-	cfg, err := loadConfig(c.String("config"))
+	cfgs, err := loadConfig(c.String("config"))
 	if err != nil {
 		return errors.Wrap(err, "load config")
 	}
@@ -133,6 +120,7 @@ func serveRun(c *cli.Command) (err error) {
 
 	err = http.Serve(l, http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		var err error
+		var conf *Config
 		var module Module
 
 		tr := tlog.Start("request", "method", req.Method, "host", req.Host, "path", req.URL.Path, "query", req.URL.RawQuery)
@@ -140,22 +128,25 @@ func serveRun(c *cli.Command) (err error) {
 
 		pkg := path.Join(req.Host, req.URL.Path)
 
-		for _, mod := range cfg.Modules {
-			if !strings.HasPrefix(pkg, mod.Module) {
-				continue
-			}
+		for _, cfg := range cfgs {
+			for _, mod := range cfg.Modules {
+				if !strings.HasPrefix(pkg, mod.Module) {
+					continue
+				}
 
-			if len(mod.Module) > len(module.Module) {
-				module = mod
+				if len(mod.Module) > len(module.Module) {
+					conf = cfg
+					module = mod
+				}
 			}
 		}
 
-		if module == (Module{}) {
+		if conf == nil {
 			http.NotFound(w, req)
 			return
 		}
 
-		err = GeneratePage(w, pkg, module, cfg.Replace)
+		err = GeneratePage(w, pkg, module, conf.Replace)
 		if errors.Is(err, ErrReplacementNotFound) {
 			http.NotFound(w, req)
 		} else if err != nil {
@@ -167,7 +158,7 @@ func serveRun(c *cli.Command) (err error) {
 }
 
 func staticRun(c *cli.Command) (err error) {
-	cfg, err := loadConfig(c.String("config"))
+	cfgs, err := loadConfig(c.String("config"))
 	if err != nil {
 		return errors.Wrap(err, "load config")
 	}
@@ -175,32 +166,34 @@ func staticRun(c *cli.Command) (err error) {
 	root := c.String("output")
 	root = filepath.Clean(root)
 
-	for _, module := range cfg.Modules {
-		var buf low.Buf
+	for _, cfg := range cfgs {
+		for _, module := range cfg.Modules {
+			var buf low.Buf
 
-		err := GeneratePage(&buf, module.Module, module, cfg.Replace)
-		if err != nil {
-			return errors.Wrap(err, module.Module)
-		}
+			err := GeneratePage(&buf, module.Module, module, cfg.Replace)
+			if err != nil {
+				return errors.Wrap(err, module.Module)
+			}
 
-		domain := strings.IndexRune(module.Module, '/')
+			domain := strings.IndexRune(module.Module, '/')
 
-		fname := filepath.FromSlash(module.Module[domain+1:])
-		fname = filepath.Join(fname, "index.html")
+			fname := filepath.FromSlash(module.Module[domain+1:])
+			fname = filepath.Join(fname, "index.html")
 
-		full := filepath.Join(root, fname)
-		dir := filepath.Dir(full)
+			full := filepath.Join(root, fname)
+			dir := filepath.Dir(full)
 
-		tlog.Printw("writing module", "module", module, "path", full)
+			tlog.Printw("writing module", "module", module, "path", full)
 
-		err = os.MkdirAll(dir, 0o755)
-		if err != nil {
-			return errors.Wrap(err, "mkdir")
-		}
+			err = os.MkdirAll(dir, 0o755)
+			if err != nil {
+				return errors.Wrap(err, "mkdir")
+			}
 
-		err = os.WriteFile(full, buf, 0o644)
-		if err != nil {
-			return errors.Wrap(err, "write file")
+			err = os.WriteFile(full, buf, 0o644)
+			if err != nil {
+				return errors.Wrap(err, "write file")
+			}
 		}
 	}
 
@@ -211,7 +204,7 @@ func GeneratePage(w io.Writer, pkg string, mod Module, reps []Replacement) (err 
 	p := Params{
 		Package: pkg,
 		Root:    first(mod.RepoRoot, mod.Module),
-		VCS:     first(mod.VCS, "git"),
+		VCS:     mod.VCS,
 		Repo:    mod.Repo,
 	}
 
@@ -221,7 +214,8 @@ func GeneratePage(w io.Writer, pkg string, mod Module, reps []Replacement) (err 
 				continue
 			}
 
-			p.Repo = strings.Replace(p.Root, rep.Prefix, rep.Repo, 1)
+			p.Repo = strings.Replace(p.Root, rep.Prefix, rep.URL, 1)
+			p.VCS = first(mod.VCS, rep.VCS)
 
 			break
 		}
@@ -229,6 +223,10 @@ func GeneratePage(w io.Writer, pkg string, mod Module, reps []Replacement) (err 
 
 	if p.Repo == "" {
 		return ErrReplacementNotFound
+	}
+
+	if p.VCS == "" {
+		p.VCS = "git"
 	}
 
 	err = repoPage.Execute(w, p)
@@ -239,44 +237,13 @@ func GeneratePage(w io.Writer, pkg string, mod Module, reps []Replacement) (err 
 	return nil
 }
 
-func loadConfig(name string) (*Config, error) {
+func loadConfig(name string) ([]*Config, error) {
 	data, err := os.ReadFile(name)
 	if err != nil {
 		return nil, errors.Wrap(err, "read file")
 	}
 
-	var c Config
-
-	err = yaml.Unmarshal(data, &c)
-	if err != nil {
-		return nil, errors.Wrap(err, "unmarshal")
-	}
-
-	return &c, nil
-}
-
-type Dummy struct {
-	Module string `json:"module"`
-}
-
-func (m *Module) UnmarshalYAML(f func(x interface{}) error) error {
-	*m = Module{}
-
-	err := f(&m.Module)
-	if err == nil {
-		return nil
-	}
-
-	type Dummy Module
-	var x Dummy
-
-	err = f(&x)
-	if err == nil {
-		*m = Module(x)
-		return nil
-	}
-
-	return errors.New("can't unmarshal value into Module")
+	return configdecoder.Decode(data)
 }
 
 func first(s ...string) string {
