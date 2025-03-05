@@ -134,10 +134,10 @@ func (d *Decoder) unmarshalPrefix(x *prefix, data []byte) (err error) {
 
 			switch key {
 			// module must be parsed before
-			case "repo_root":
-				common.RepoRoot, err = d.getString(val.Value, "repo_root must be a string")
-			case "repo":
-				common.Repo, err = d.getString(val.Value, "repo must be a string")
+			case "root":
+				common.Root, err = d.getString(val.Value, "root must be a string")
+			case "url":
+				common.URL, err = d.getString(val.Value, "url must be a string")
 			case "vcs":
 				common.VCS, err = d.getString(val.Value, "vcs must be a string")
 			default:
@@ -173,10 +173,10 @@ func (d *Decoder) unmarshalPrefix(x *prefix, data []byte) (err error) {
 
 	for i, suff := range sub {
 		ms[i] = Module{
-			Module:   path.Join(prefix, suff),
-			RepoRoot: first(common.RepoRoot, prefix),
-			Repo:     common.Repo,
-			VCS:      common.VCS,
+			Module: path.Join(prefix, suff),
+			Root:   first(common.Root, prefix),
+			URL:    common.URL,
+			VCS:    common.VCS,
 		}
 	}
 

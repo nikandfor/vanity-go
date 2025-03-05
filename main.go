@@ -29,7 +29,7 @@ type (
 		Package string `json:"pkg"`
 		Root    string `json:"root"` // import prefix
 		VCS     string `json:"vcs"`
-		Repo    string `json:"repo"` // url
+		URL     string `json:"repo"` // url
 	}
 )
 
@@ -203,25 +203,25 @@ func staticRun(c *cli.Command) (err error) {
 func GeneratePage(w io.Writer, pkg string, mod Module, reps []Replacement) (err error) {
 	p := Params{
 		Package: pkg,
-		Root:    first(mod.RepoRoot, mod.Module),
+		Root:    first(mod.Root, mod.Module),
 		VCS:     mod.VCS,
-		Repo:    mod.Repo,
+		URL:     mod.URL,
 	}
 
-	if p.Repo == "" {
+	if p.URL == "" {
 		for _, rep := range reps {
 			if !strings.HasPrefix(p.Root, rep.Prefix) {
 				continue
 			}
 
-			p.Repo = strings.Replace(p.Root, rep.Prefix, rep.URL, 1)
+			p.URL = strings.Replace(p.Root, rep.Prefix, rep.URL, 1)
 			p.VCS = first(mod.VCS, rep.VCS)
 
 			break
 		}
 	}
 
-	if p.Repo == "" {
+	if p.URL == "" {
 		return ErrReplacementNotFound
 	}
 
@@ -260,7 +260,7 @@ var repoPage = template.Must(template.New("page").Parse(`<!DOCTYPE html>
 {{- define "godoc" }}https://pkg.go.dev/{{ . }}{{ end }}
 <html lang=en-US>
 <head>
-	<meta name="go-import" content="{{ .Root }} {{ .VCS }} {{ .Repo }}">
+	<meta name="go-import" content="{{ .Root }} {{ .VCS }} {{ .URL }}">
 	<meta http-equiv="Refresh" content="3; url='{{ template "godoc" .Package }}'" />
 </head>
 <body>

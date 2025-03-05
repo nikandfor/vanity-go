@@ -25,22 +25,31 @@ modules:
 
   - tlog.app/go/tlog         # short form of the previous example
 
-  - module: tlog.app/go/tlog/ext/tlgin # module in the subfolder of the repo
-    repo_root: tlog.app/go/tlog        # module path prefix pointing to repo root
-                                       # replace rules applied to repo_root
+  - module: tlog.app/go/tlog/ext/tlgin # module in a repo subfolder
+    root: tlog.app/go/tlog             # module path prefix pointing to the repo root
+                                       # replace rules applied to root
+
+                                  # fancy syntax
+  - tlog.app/go/tlog:             # common prefix; repo root
+    - /                           # modules list with the prefix
+    - /ext/tlgin                  # each subdirectory that have go.mod in it
+    - /cmd/tlog
+    url: https://github.com/tlog-dev/tlog # override common replace rule
 
   - module: tlog.app/go/tlog/ext/tlgin
-    repo: https://github.com/tlog-dev/tlog # specify repository, no substitutions are applied
+    root: tlog.app/go/tlog
+    url: https://github.com/tlog-dev/tlog # specify repository, no substitutions are applied
 ```
 
 ### Replace
 
 `replace` is a list of replace rules for module paths.
+Rule is applied to the repo root, not the full path.
 Replaces work on strings, not paths, so trailing slashes matter.
 Replace rules tried in the declaration order, first match applied.
 
 ```
 replace:
   - prefix: tlog.app/go/
-    repo: https://github.com/tlog-dev/
+    url: https://github.com/tlog-dev/
 ```

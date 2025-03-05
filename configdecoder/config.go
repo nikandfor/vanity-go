@@ -7,10 +7,10 @@ type (
 	}
 
 	Module struct {
-		Module   string `json:"module"`
-		RepoRoot string `json:"repo_root,omitempty"`
-		Repo     string `json:"repo,omitempty"`
-		VCS      string `json:"vcs,omitempty"`
+		Module string `json:"module"`
+		Root   string `json:"root,omitempty"`
+		URL    string `json:"url,omitempty"`
+		VCS    string `json:"vcs,omitempty"`
 	}
 
 	Replacement struct {
