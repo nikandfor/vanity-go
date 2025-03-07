@@ -111,12 +111,28 @@ func serveRun(c *cli.Command) (err error) {
 		return errors.Wrap(err, "load config")
 	}
 
+	tlog.Printw("config loaded", "configs", len(cfgs), "path", c.String("config"))
+
 	l, err := net.Listen("tcp", c.String("listen"))
 	if err != nil {
 		return errors.Wrap(err, "listen")
 	}
 
 	tlog.Printw("serving", "addr", l.Addr())
+
+	for i, cfg := range cfgs {
+		if len(cfgs) > 1 {
+			tlog.Printw("config", "index", i)
+		}
+
+		for _, m := range cfg.Modules {
+			tlog.Printw("module", "module", m.Module, "root", m.Root, "vcs", m.VCS, "url", m.URL)
+		}
+
+		for _, r := range cfg.Replace {
+			tlog.Printw("replace", "prefix", r.Prefix, "url", r.URL, "vcs", r.VCS)
+		}
+	}
 
 	err = http.Serve(l, http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		var err error
